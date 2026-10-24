@@ -32,13 +32,16 @@
           };
 
           # subverso has no dependencies and so no lake-manifest.json, which
-          # lake2nix requires; give it an empty one.
-          subverso = lake2nix.mkLakeDerivation ({
+          # lake2nix reads at evaluation time. Build it directly, laid out as
+          # lake2nix lays out a dependency (source plus .lake).
+          subverso = pkgs.stdenv.mkDerivation ({
             name = "subverso";
-            src = pkgs.runCommand "subverso-src" { } ''
-              cp -r ${builtins.fetchGit { inherit (pinned "subverso") url rev; shallow = true; }} $out
-              chmod +w $out
-              echo '{"version": "1.1.0", "packagesDir": ".lake/packages", "packages": [], "name": "subverso", "lakeDir": ".lake"}' > $out/lake-manifest.json
+            src = builtins.fetchGit { inherit (pinned "subverso") url rev; shallow = true; };
+            nativeBuildInputs = [ pkgs.rsync pkgs.lean.lean-all ];
+            installPhase = ''
+              mkdir -p $out
+              rsync -a --exclude=".lake" --filter=":- .gitignore" ./ "$out/"
+              cp -rP .lake $out
             '';
           } // buildLibs [ "SubVerso" ]);
 
@@ -53,8 +56,10 @@
         in
         {
           inherit generator;
-          # The static site.
+          # The static site. The generator expects to run in the project
+          # (it looks for lean-toolchain), which lake2nix installs with it.
           default = pkgs.runCommand "badlydrawnwizards.com" { } ''
+            cd ${generator}
             ${generator}/bin/generate-blog --output $out
           '';
         });
